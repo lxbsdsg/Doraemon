@@ -52,7 +52,7 @@ class AutoUpdater(private val mContext: Context) {
             conn.connectTimeout = 15000
             conn.readTimeout = 60000
             conn.connect()
-            val length = conn.contentLength
+            val length = if (conn.contentLength > 0) conn.contentLength else 1
             val ins = conn.inputStream
             val fos = FileOutputStream(apkFile)
             var count = 0
@@ -100,7 +100,7 @@ class AutoUpdater(private val mContext: Context) {
             val config = doGet(checkUrl)
             if (config.isNullOrEmpty()) {
                 mHandler?.obtainMessage(DOWN_CHECK_FAILED, "检查更新失败，请检查网络或前往 GitHub Releases 手动下载")?.sendToTarget()
-                onCheckFinished.invoke()
+                invokeOnMain(onCheckFinished)
                 return@Runnable
             }
             var remoteVersion = "0"
@@ -125,7 +125,7 @@ class AutoUpdater(private val mContext: Context) {
             }
             val tipShow = mContext.getBySp(Constants.Update.UPDATE_TIP)
             if (tipShow == Constants.Update.NO_SHOW && !forced) {
-                onCheckFinished.invoke()
+                invokeOnMain(onCheckFinished)
                 return@Runnable
             }
             mContext.saveUsedSp(Constants.Update.REMOTE_VERSION, remoteVersion)
@@ -135,9 +135,18 @@ class AutoUpdater(private val mContext: Context) {
                 (mContext as? Activity)?.runOnUiThread(onShowDownloadDialog)
             } else {
                 mHandler?.obtainMessage(DOWN_NO_UPDATE, releasesPageUrl)?.sendToTarget()
-                onCheckFinished.invoke()
+                invokeOnMain(onCheckFinished)
             }
         }).start()
+    }
+
+    private fun invokeOnMain(action: () -> Unit) {
+        val activity = mContext as? Activity
+        if (activity != null) {
+            activity.runOnUiThread(action)
+        } else {
+            Handler(Looper.getMainLooper()).post(action)
+        }
     }
 
     private fun checkIfValidVersion(remoteVersion: String): Boolean {
