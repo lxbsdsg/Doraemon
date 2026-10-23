@@ -20,6 +20,8 @@ import kotlin.math.sqrt
 
 
 object AmapUtils {
+    private const val X_PI = 3.14159265358979324 * 3000.0 / 180.0
+
     //要申请的权限
     private const val mPermissions =
         Manifest.permission.ACCESS_FINE_LOCATION
@@ -130,17 +132,15 @@ object AmapUtils {
     }
 
     fun mapPointGdTurnBaiDu(lon: Double, lat: Double): BDLating {
-        val pi = 3.14159265358979324
-        val z = sqrt(lon * lon + lat * lat) + 0.00002 * sin(lat * pi)
-        val theta = atan2(lat, lon) + 0.000003 * cos(lon * pi)
+        val z = sqrt(lon * lon + lat * lat) + 0.00002 * sin(lat * X_PI)
+        val theta = atan2(lat, lon) + 0.000003 * cos(lon * X_PI)
         val bdLon = z * cos(theta) + 0.0065
         val bdLat = z * sin(theta) + 0.006
         return BDLating(bdLat, bdLon)
     }
     fun mapPointBaiduTurnDG(lon: Double, lat: Double): BDLating {
-        val pi = 3.14159265358979324
-        val z = sqrt(lon * lon + lat * lat) - 0.00002 * sin(lat * pi)
-        val theta = atan2(lat, lon) - 0.000003 * cos(lon * pi)
+        val z = sqrt(lon * lon + lat * lat) - 0.00002 * sin(lat * X_PI)
+        val theta = atan2(lat, lon) - 0.000003 * cos(lon * X_PI)
         val bdLon = z * cos(theta) - 0.0065
         val bdLat = z * sin(theta) - 0.006
         return BDLating(bdLat, bdLon)
