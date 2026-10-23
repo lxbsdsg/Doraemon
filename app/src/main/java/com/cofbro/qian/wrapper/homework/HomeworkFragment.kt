@@ -12,6 +12,7 @@ import com.cofbro.qian.utils.Constants
 import com.cofbro.qian.utils.HtmlParser
 import com.cofbro.qian.wrapper.WrapperActivity
 import com.cofbro.qian.wrapper.did.DoHomeworkActivity
+import com.hjq.toast.ToastUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -23,6 +24,10 @@ class HomeworkFragment : BaseFragment<HomeworkViewModel, FragmentHomeworkBinding
     private var mAdapter: HomeworkAdapter? = null
     private var activity: WrapperActivity? = null
     private var refreshing = false;
+    private var homeworkEnc = ""
+    private var homeworkPageCount = 1
+    private var homeworkCurrentPage = 0
+    private val homeworkBuffer = arrayListOf<JSONObject>()
     override fun onAllViewCreated(savedInstanceState: Bundle?) {
         initArgs()
         initView()
@@ -66,6 +71,16 @@ class HomeworkFragment : BaseFragment<HomeworkViewModel, FragmentHomeworkBinding
             lifecycleScope.launch(Dispatchers.IO) {
                 // 解析HTML得enc
                 val workEnc = HtmlParser.findEnc(it.data?.body?.string() ?: "")
+                if (workEnc.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        if (refreshing) {
+                            refreshing = false
+                            binding?.rflHomework?.finishRefresh()
+                        }
+                        ToastUtils.show("作业信息获取失败，学习通接口可能已改版")
+                    }
+                    return@launch
+                }
                 // 作业列表，里面就有写作业界面的url
                 requestForHomeworkList(workEnc)
                 //
@@ -74,13 +89,23 @@ class HomeworkFragment : BaseFragment<HomeworkViewModel, FragmentHomeworkBinding
 
         viewModel.homeworkListHTML.observe(this) {
             lifecycleScope.launch(Dispatchers.IO) {
-                val data = HtmlParser.parseHomeworkHTML(it.data?.body?.string() ?: "")
+                val html = it.data?.body?.string() ?: ""
+                val data = HtmlParser.parseHomeworkHTML(html)
+                homeworkPageCount = HtmlParser.parseHomeworkPageCount(html)
+                homeworkBuffer.addAll(data)
+                if (homeworkCurrentPage < homeworkPageCount) {
+                    requestForHomeworkList(homeworkEnc, homeworkCurrentPage + 1)
+                    return@launch
+                }
                 withContext(Dispatchers.Main) {
                     if (refreshing) {
                         refreshing = false
                         binding?.rflHomework?.finishRefresh()
                     }
-                    mAdapter?.setData(data)
+                    if (homeworkBuffer.isEmpty()) {
+                        ToastUtils.show("未获取到作业，接口返回为空或解析失败")
+                    }
+                    mAdapter?.setData(homeworkBuffer)
                 }
             }
         }
@@ -114,10 +139,20 @@ class HomeworkFragment : BaseFragment<HomeworkViewModel, FragmentHomeworkBinding
     }
 
     private suspend fun requestForHomeworkList(enc: String) {
+        requestForHomeworkList(enc, 1)
+    }
+
+    private suspend fun requestForHomeworkList(enc: String, pageNum: Int) {
         val courseId = activity?.courseId ?: ""
         val classId = activity?.classId ?: ""
         val cpi = activity?.cpi ?: ""
-        viewModel.requestForHomeworkHTML(URL.getHomeworkListPath(courseId, classId, cpi, enc))
+        homeworkEnc = enc
+        homeworkCurrentPage = pageNum
+        if (pageNum == 1) {
+            homeworkBuffer.clear()
+            homeworkPageCount = 1
+        }
+        viewModel.requestForHomeworkHTML(URL.getHomeworkListPath(courseId, classId, cpi, enc, pageNum))
     }
 
     private fun toDoHomework(url: String) {

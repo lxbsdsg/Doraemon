@@ -332,7 +332,7 @@ class MapActivity : BaseActivity<MapViewModel, ActivityMapBinding>(), AMap.OnMar
                 val intent = Intent(applicationContext, MainActivity::class.java)
                 startActivity(intent)
             }
-            if (viewModel.statuscontent != "签到成功" && viewModel.currentTipPoint.latitude.toInt() != 0 && viewModel.currentTipPoint.latitude.toInt() != 0) {
+            if (viewModel.statuscontent != "签到成功" && viewModel.currentTipPoint.latitude.toInt() != 0 && viewModel.currentTipPoint.longitude.toInt() != 0) {
                 // 成功初始化mark并成功定位
                 if (viewModel.Tip_address != null && viewModel.Tip_name != null) {
                     val cityName = viewModel.Tip_City
@@ -385,8 +385,9 @@ class MapActivity : BaseActivity<MapViewModel, ActivityMapBinding>(), AMap.OnMar
                  * 选择上传让老师看到的位置
                  */
                 if (viewModel.currentTipPoint.latitude != 0.0 && viewModel.currentTipPoint.longitude != 0.0) {
-                    val Lating = AmapUtils.mapPointGdTurnBaiDu( viewModel.currentTipPoint.latitude,
-                        viewModel.currentTipPoint.longitude)
+                    val Lating = AmapUtils.mapPointGdTurnBaiDu(
+                        viewModel.currentTipPoint.longitude,
+                        viewModel.currentTipPoint.latitude)
                     viewModel.signUrl =
                         URL.getLocationSignPath(
                             address = binding?.etLocationName?.text.toString(),
@@ -761,16 +762,16 @@ class MapActivity : BaseActivity<MapViewModel, ActivityMapBinding>(), AMap.OnMar
             binding?.maps?.map?.clear()
             addLatLngMarker(latLng, default = true)
             viewModel.currentTipPoint = LatLng(latLng.latitude,latLng.longitude)
-            val latLngs = AmapUtils.mapPointBaiduTurnDG(viewModel.default_Sign_Lating!!.longitude,viewModel.default_Sign_Lating!!.latitude)
-//            Log.v("TAG",latLngs.toString())
-
-            addLatingDefaultMarker(latLngs)
+            viewModel.default_Sign_Lating?.let {
+                val latLngs = AmapUtils.mapPointBaiduTurnDG(it.longitude, it.latitude)
+                addLatingDefaultMarker(latLngs)
+            }
         }
         AmapUtils.getCurrentLocationLatLng(applicationContext,
             onSuccess = { lat, lon, address ->
                 viewModel.default_My_Lating =
                     BDLating(lat, lon)
-                val latLng= AmapUtils.mapPointGdTurnBaiDu(lat, lon)
+                val latLng = AmapUtils.mapPointGdTurnBaiDu(lon, lat)
                 addLatingDefaultMarker(viewModel.default_My_Lating)
             },
             onError = { error ->

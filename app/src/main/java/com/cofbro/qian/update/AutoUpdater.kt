@@ -13,6 +13,7 @@ import android.os.Message
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.content.FileProvider
+import com.alibaba.fastjson.JSON
 import com.cofbro.hymvvmutils.base.getBySp
 import com.cofbro.hymvvmutils.base.saveUsedSp
 import com.cofbro.qian.utils.Constants
@@ -30,13 +31,13 @@ import java.lang.ref.WeakReference
 import java.net.HttpURLConnection
 import java.net.MalformedURLException
 import java.net.URL
-import java.util.regex.Pattern
 
 
 class AutoUpdater(private val mContext: Context) {
     private var apkFile = File(mContext.filesDir, "app-release-c.apk")
-    private var apkUrl = "https://doraemon.halfsweet.cn/"
-    private var checkUrl = "https://doraemon.halfsweet.cn/output-metadata.json"
+    private var apkUrl = ""
+    private val checkUrl = "https://api.github.com/repos/CofbroTeam/Doraemon/releases/latest"
+    private val releasesPageUrl = "https://github.com/CofbroTeam/Doraemon/releases"
     private var intercept = false
     private var downLoadThread: Thread? = null
     private var mProgress: ProgressBar? = null
@@ -48,8 +49,10 @@ class AutoUpdater(private val mContext: Context) {
             val url = URL(apkUrl)
             HttpURLConnection.setFollowRedirects(true)
             val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 15000
+            conn.readTimeout = 60000
             conn.connect()
-            val length = conn.contentLength
+            val length = if (conn.contentLength > 0) conn.contentLength else 1
             val ins = conn.inputStream
             val fos = FileOutputStream(apkFile)
             var count = 0
@@ -59,26 +62,29 @@ class AutoUpdater(private val mContext: Context) {
                     break
                 }
                 val numRead = ins.read(buf)
-                count += numRead
-                progress = count * 1f / length * 100.0f
-                mHandler?.sendEmptyMessage(DOWN_UPDATE)
                 if (numRead <= 0) {
+                    fos.flush()
                     mHandler?.sendEmptyMessage(DOWN_OVER)
                     break
                 }
+                count += numRead
+                progress = count * 100f / length
+                mHandler?.sendEmptyMessage(DOWN_UPDATE)
                 fos.write(buf, 0, numRead)
             }
             fos.close()
             ins.close()
         } catch (e: Exception) {
             e.printStackTrace()
+            mHandler?.obtainMessage(DOWN_CHECK_FAILED, "下载失败，请前往 GitHub Releases 手动下载")?.sendToTarget()
         }
     }
 
     fun checkUpdate(
         forced: Boolean = false,
         onPreCheck: () -> Unit = {},
-        onShowDownloadDialog: () -> Unit = {}
+        onShowDownloadDialog: () -> Unit = {},
+        onCheckFinished: () -> Unit = {}
     ) {
         onPreCheck.invoke()
         mHandler = DownloadHandler(this)
@@ -87,43 +93,63 @@ class AutoUpdater(private val mContext: Context) {
             try {
                 localVersion =
                     mContext.packageManager.getPackageInfo(mContext.packageName, 0).versionName
-                // 存储本地版本
                 mContext.saveUsedSp(Constants.Update.LOCAL_VERSION, localVersion)
             } catch (e: PackageManager.NameNotFoundException) {
                 e.printStackTrace()
             }
-            var remoteVersion = "1"
-            var outputFile = ""
             val config = doGet(checkUrl)
-            if (!config.isNullOrEmpty()) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    var m = Pattern.compile("\"outputFile\":\\s*\"(?<m>[^\"]*?)\"").matcher(config)
-                    if (m.find()) {
-                        outputFile = m.group("m")?.toString() ?: ""
-                    }
-                    m = Pattern.compile("\"versionName\":\\s*\"(?<m>[^\"]*?)\"").matcher(config)
-                    if (m.find()) {
-                        remoteVersion = m.group("m")?.replace("v1.0.", "") ?: ""
+            if (config.isNullOrEmpty()) {
+                mHandler?.obtainMessage(DOWN_CHECK_FAILED, "检查更新失败，请检查网络或前往 GitHub Releases 手动下载")?.sendToTarget()
+                invokeOnMain(onCheckFinished)
+                return@Runnable
+            }
+            var remoteVersion = "0"
+            var apkAssetUrl = ""
+            try {
+                val release = JSON.parseObject(config)
+                remoteVersion = release.getString("published_at")
+                    ?.replace(Regex("[^0-9]"), "")
+                    ?.take(14)
+                    ?.ifEmpty { "0" } ?: "0"
+                val assets = release.getJSONArray("assets")
+                for (index in 0 until (assets?.size ?: 0)) {
+                    val asset = assets?.getJSONObject(index) ?: continue
+                    val name = asset.getString("name") ?: ""
+                    if (name.endsWith(".apk", true)) {
+                        apkAssetUrl = asset.getString("browser_download_url") ?: ""
+                        break
                     }
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
             val tipShow = mContext.getBySp(Constants.Update.UPDATE_TIP)
             if (tipShow == Constants.Update.NO_SHOW && !forced) {
+                invokeOnMain(onCheckFinished)
                 return@Runnable
             }
-            if (checkIfValidVersion(remoteVersion)) {
-                apkUrl += outputFile
+            mContext.saveUsedSp(Constants.Update.REMOTE_VERSION, remoteVersion)
+            if (apkAssetUrl.isNotEmpty() && checkIfValidVersion(remoteVersion)) {
+                apkUrl = apkAssetUrl
                 mHandler?.sendEmptyMessage(DOWN_START)
                 (mContext as? Activity)?.runOnUiThread(onShowDownloadDialog)
             } else {
-                return@Runnable
+                mHandler?.obtainMessage(DOWN_NO_UPDATE, releasesPageUrl)?.sendToTarget()
+                invokeOnMain(onCheckFinished)
             }
         }).start()
     }
 
+    private fun invokeOnMain(action: () -> Unit) {
+        val activity = mContext as? Activity
+        if (activity != null) {
+            activity.runOnUiThread(action)
+        } else {
+            Handler(Looper.getMainLooper()).post(action)
+        }
+    }
+
     private fun checkIfValidVersion(remoteVersion: String): Boolean {
-        // 存储远端最新版本号
-        mContext.saveUsedSp(Constants.Update.REMOTE_VERSION, remoteVersion)
         val remoteUpdateVersion = parse2Long(remoteVersion)
         val localUpdateVersion = parse2Long(mContext.getBySp(Constants.Update.LOCAL_VERSION))
         if (localUpdateVersion == 0L || localUpdateVersion < remoteUpdateVersion) {
@@ -131,7 +157,6 @@ class AutoUpdater(private val mContext: Context) {
         }
         if (localUpdateVersion == remoteUpdateVersion) {
             apkFile.delete()
-            return false
         }
         return false
     }
@@ -144,7 +169,7 @@ class AutoUpdater(private val mContext: Context) {
 
     private fun doGet(httpUrl: String?): String? {
         var connection: HttpURLConnection? = null
-        var `is`: InputStream? = null
+        var inputStream: InputStream? = null
         var br: BufferedReader? = null
         var result: String? = null
         try {
@@ -153,10 +178,11 @@ class AutoUpdater(private val mContext: Context) {
             connection.requestMethod = "GET"
             connection.connectTimeout = 15000
             connection.readTimeout = 60000
+            connection.setRequestProperty("Accept", "application/vnd.github+json")
             connection.connect()
             if (connection.responseCode == 200) {
-                `is` = connection.inputStream
-                br = BufferedReader(InputStreamReader(`is`, "UTF-8"))
+                inputStream = connection.inputStream
+                br = BufferedReader(InputStreamReader(inputStream, "UTF-8"))
                 val sbf = StringBuffer()
                 var temp: String? = null
                 while (br.readLine().also { temp = it } != null) {
@@ -170,21 +196,17 @@ class AutoUpdater(private val mContext: Context) {
         } catch (e: IOException) {
             e.printStackTrace()
         } finally {
-            if (null != br) {
-                try {
-                    br.close()
-                } catch (e: IOException) {
-                    e.printStackTrace()
-                }
+            try {
+                br?.close()
+            } catch (e: IOException) {
+                e.printStackTrace()
             }
-            if (null != `is`) {
-                try {
-                    `is`.close()
-                } catch (e: IOException) {
-                    e.printStackTrace()
-                }
+            try {
+                inputStream?.close()
+            } catch (e: IOException) {
+                e.printStackTrace()
             }
-            connection!!.disconnect()
+            connection?.disconnect()
         }
         return result
     }
@@ -255,6 +277,8 @@ class AutoUpdater(private val mContext: Context) {
         private const val DOWN_UPDATE = 1
         private const val DOWN_OVER = 2
         private const val DOWN_START = 3
+        private const val DOWN_CHECK_FAILED = 4
+        private const val DOWN_NO_UPDATE = 5
     }
 
     private class DownloadHandler(updater: AutoUpdater) : Handler(Looper.getMainLooper()) {
@@ -266,21 +290,24 @@ class AutoUpdater(private val mContext: Context) {
             when (msg.what) {
                 DOWN_UPDATE -> {
                     mUpdater.updateDownloadProgress()
-                    return
                 }
 
                 DOWN_OVER -> {
                     ToastUtils.show("下载完毕")
                     mUpdater.installAPK()
-                    return
                 }
 
                 DOWN_START -> {
                     mUpdater.showUpdateDialog()
-                    return
                 }
 
-                else -> return
+                DOWN_CHECK_FAILED -> {
+                    ToastUtils.show(msg.obj as? String ?: "检查更新失败")
+                }
+
+                DOWN_NO_UPDATE -> {
+                    ToastUtils.show("已是最新版本（原作者已停止更新）")
+                }
             }
         }
     }
