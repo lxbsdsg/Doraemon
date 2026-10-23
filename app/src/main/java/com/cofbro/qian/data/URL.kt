@@ -59,9 +59,10 @@ object URL {
         courseId: String,
         classId: String,
         cpi: String,
-        workEnc: String
+        workEnc: String,
+        pageNum: Int = 1
     ): String =
-        "https://mooc1.chaoxing.com/mooc2/work/list?courseId=$courseId&classId=$classId&cpi=$cpi&ut=s&enc=$workEnc"
+        "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list?courseId=$courseId&classId=$classId&cpi=$cpi&ut=s&enc=$workEnc&pageNum=$pageNum"
 
     // 用户信息
     fun getUserInfo(): String = "http://i.chaoxing.com/base"

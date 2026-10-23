@@ -92,7 +92,7 @@ class SearchFriendActivity : BaseActivity<SearchFriendViewModel, ActivitySearchF
                 }
                 friendsAdapter?.setData(friendList)
             }, onError = {
-                ToastUtils.show("好友申请发送失败")
+                ToastUtils.show("搜索用户失败：$it")
             }
         )
     }
@@ -121,6 +121,10 @@ class SearchFriendActivity : BaseActivity<SearchFriendViewModel, ActivitySearchF
     }
 
     private fun sendFriendRequestReally(uid: String) {
+        if (IMClientUtils.getIMClient() == null) {
+            ToastUtils.show("请先登录哆啦账号后再添加好友")
+            return
+        }
         IMClientUtils.createNewConversation(
             uid,
             onSuccess = {

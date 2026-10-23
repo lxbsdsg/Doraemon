@@ -79,6 +79,10 @@ class UpdateDetailActivity : BaseActivity<UpdateDetailViewModel, ActivityUpdateD
             }, onShowDownloadDialog = {
                 hideLoadingView()
                 clickIntercept = false
+            },
+            onCheckFinished = {
+                hideLoadingView()
+                clickIntercept = false
             }
         )
     }
@@ -86,7 +90,7 @@ class UpdateDetailActivity : BaseActivity<UpdateDetailViewModel, ActivityUpdateD
     private fun toUpdateDetailWebPage() {
         val intent = Intent(
             Intent.ACTION_VIEW,
-            Uri.parse("https://www.yuque.com/cofbro/doraemon/krann1gxgu1c52b9")
+            Uri.parse("https://github.com/CofbroTeam/Doraemon/releases")
         )
         startActivity(intent)
     }
